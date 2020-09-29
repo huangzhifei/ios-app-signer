@@ -7,6 +7,7 @@
 //
 
 import Cocoa
+import AppKit
 
 class MainView: NSView, URLSessionDataDelegate, URLSessionDelegate, URLSessionDownloadDelegate {
     
@@ -92,8 +93,8 @@ class MainView: NSView, URLSessionDataDelegate, URLSessionDelegate, URLSessionDo
     }
     
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let pasteboard = sender.draggingPasteboard()
-        if let board = pasteboard.propertyList(forType: "NSFilenamesPboardType") as? NSArray {
+        let pasteboard = sender.draggingPasteboard
+        if let board = pasteboard.propertyList(forType: NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")) as? NSArray {
             if let filePath = board[0] as? String {
                 
                 fileDropped(filePath)
@@ -101,26 +102,34 @@ class MainView: NSView, URLSessionDataDelegate, URLSessionDelegate, URLSessionDo
             }
         }
         if let types = pasteboard.types {
-            if types.contains(NSURLPboardType) {
-                if let url = NSURL(from: pasteboard) {
-                    urlDropped(url)
+            if #available(OSX 10.13, *) {
+                if types.contains(NSPasteboard.PasteboardType.URL) {
+                    if let url = NSURL(from: pasteboard) {
+                        urlDropped(url)
+                    }
                 }
+            } else {
+                // Fallback on earlier versions
             }
         }
         return false
     }
     
     func checkExtension(_ drag: NSDraggingInfo) -> Bool {
-        if let board = drag.draggingPasteboard().propertyList(forType: "NSFilenamesPboardType") as? NSArray,
+        if let board = drag.draggingPasteboard.propertyList(forType: NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")) as? NSArray,
             let path = board[0] as? String {
                 return self.fileTypes.contains(path.pathExtension.lowercased())
         }
-        if let types = drag.draggingPasteboard().types {
-            if types.contains(NSURLPboardType) {
-                if let url = NSURL(from: drag.draggingPasteboard()),
-                    let suffix = url.pathExtension {
+        if let types = drag.draggingPasteboard.types {
+            if #available(OSX 10.13, *) {
+                if types.contains(NSPasteboard.PasteboardType.URL) {
+                    if let url = NSURL(from: drag.draggingPasteboard),
+                       let suffix = url.pathExtension {
                         return self.urlFileTypes.contains(suffix.lowercased())
+                    }
                 }
+            } else {
+                // Fallback on earlier versions
             }
         }
         return false
@@ -130,11 +139,19 @@ class MainView: NSView, URLSessionDataDelegate, URLSessionDelegate, URLSessionDo
     
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        register(forDraggedTypes: [NSFilenamesPboardType, NSURLPboardType])
+        if #available(OSX 10.13, *) {
+            registerForDraggedTypes([NSPasteboard.PasteboardType.fileURL, NSPasteboard.PasteboardType.URL])
+        } else {
+            // Fallback on earlier versions
+        }
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        register(forDraggedTypes: [NSFilenamesPboardType, NSURLPboardType])
+        if #available(OSX 10.13, *) {
+            registerForDraggedTypes([NSPasteboard.PasteboardType.fileURL, NSPasteboard.PasteboardType.URL])
+        } else {
+            // Fallback on earlier versions
+        }
     }
     override func awakeFromNib() {
         super.awakeFromNib()
@@ -271,7 +288,7 @@ class MainView: NSView, URLSessionDataDelegate, URLSessionDelegate, URLSessionDo
         alert.informativeText = "I can attempt to fix this automatically, would you like me to try?"
         alert.addButton(withTitle: "Yes")
         alert.addButton(withTitle: "No")
-        if alert.runModal() == NSAlertFirstButtonReturn {
+        if alert.runModal() == NSApplication.ModalResponse.alertFirstButtonReturn {
             if let tempFolder = makeTempFolder() {
                 iASShared.fixSigning(tempFolder)
                 try? fileManager.removeItem(atPath: tempFolder)
@@ -501,7 +518,7 @@ class MainView: NSView, URLSessionDataDelegate, URLSessionDelegate, URLSessionDo
         let saveDialog = NSSavePanel()
         saveDialog.allowedFileTypes = ["ipa"]
         saveDialog.nameFieldStringValue = InputFileText.stringValue.lastPathComponent.stringByDeletingPathExtension
-        if saveDialog.runModal() == NSFileHandlingPanelOKButton {
+        if saveDialog.runModal().rawValue == NSFileHandlingPanelOKButton {
             outputFile = saveDialog.url!.path
             Thread.detachNewThreadSelector(#selector(self.signingThread), toTarget: self, with: nil)
         } else {
@@ -510,7 +527,7 @@ class MainView: NSView, URLSessionDataDelegate, URLSessionDelegate, URLSessionDo
         }
     }
     
-    func signingThread(){
+    @objc func signingThread(){
         
         
         //MARK: Set up variables
@@ -586,7 +603,7 @@ class MainView: NSView, URLSessionDataDelegate, URLSessionDelegate, URLSessionDo
                     alert.addButton(withTitle: "No")
                     alert.informativeText = "You appear to have a error with your codesigning certificate, do you want me to try and fix the problem?"
                     let response = alert.runModal()
-                    if response == NSAlertFirstButtonReturn {
+                    if response == NSApplication.ModalResponse.alertFirstButtonReturn {
                         iASShared.fixSigning(tempFolder)
                         if self.testSigning(signingCertificate!, tempFolder: tempFolder) == false {
                             let errorAlert = NSAlert()
